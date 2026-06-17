@@ -14,6 +14,7 @@ function App() {
   const [isDeploying, setIsDeploying] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authKey, setAuthKey] = useState('');
+  const [userRole, setUserRole] = useState('');
   
   // Filter state
   const [filterSeverity, setFilterSeverity] = useState('All');
@@ -26,7 +27,11 @@ function App() {
 
   const handleLogin = (e) => {
     e.preventDefault();
-    if (authKey.length > 4) {
+    if (authKey === "admin123") {
+      setUserRole("Admin");
+      setIsAuthenticated(true);
+    } else if (authKey === "responder123") {
+      setUserRole("Responder");
       setIsAuthenticated(true);
     } else {
       alert("Invalid Security Clearance Key");
@@ -35,7 +40,9 @@ function App() {
 
   const fetchIncidents = async () => {
     try {
-      const response = await axios.get(`${API_URL}/incidents`);
+      const response = await axios.get(`${API_URL}/incidents`, {
+        headers: { 'X-Auth-Key': authKey }
+      });
       // Sort by timestamp if available
       const sorted = response.data.sort((a, b) => {
         if (!a.timestamp) return 1;
@@ -62,7 +69,8 @@ function App() {
 
       if (file) {
         const urlRes = await axios.get(`${API_URL}/generate-upload-url`, {
-          params: { filename: file.name, filetype: file.type }
+          params: { filename: file.name, filetype: file.type },
+          headers: { 'X-Auth-Key': authKey }
         });
         const { upload_url, url } = urlRes.data;
         
@@ -74,6 +82,8 @@ function App() {
 
       const res = await axios.post(`${API_URL}/incidents`, { 
         title, severity, description, location, image_url: imageUrl 
+      }, {
+        headers: { 'X-Auth-Key': authKey }
       });
       
       if (severity.toLowerCase() === 'critical') {
@@ -96,7 +106,9 @@ function App() {
 
   const handleDelete = async (id) => {
     try {
-      await axios.delete(`${API_URL}/incidents/${id}`);
+      await axios.delete(`${API_URL}/incidents/${id}`, {
+        headers: { 'X-Auth-Key': authKey }
+      });
       fetchIncidents();
     } catch (error) {
       console.error(error);
@@ -216,7 +228,9 @@ function App() {
                 </div>
                 {inc.image_url && <img src={inc.image_url} alt="Tactical" className="incident-image" />}
                 <div className="incident-desc">{inc.description}</div>
-                <button className="btn-delete" onClick={() => handleDelete(inc.id)}>RESOLVE</button>
+                {userRole === "Admin" && (
+                  <button className="btn-delete" onClick={() => handleDelete(inc.id)}>RESOLVE</button>
+                )}
               </div>
             );
           })}

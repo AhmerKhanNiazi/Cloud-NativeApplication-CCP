@@ -1,26 +1,20 @@
-# Node modules
+# Ignore node_modules
 node_modules/
 build/
-npm-debug.log
 
-# Python
+# Ignore python cache
 __pycache__/
-*.py[cod]
-*$py.class
-package/
-deployment_package.zip
+*.pyc
+
+# Ignore large zips
+*.zip
+backend.zip
+dummy_payload.zip
 
 # Terraform
 .terraform/
 *.tfstate
 *.tfstate.backup
-.terraform.lock.hcl
 
-# OS generated files
-.DS_Store
-Thumbs.db
-
-# IDEs
-.idea/
-.vscode/
-*.swp
+# Env files
+.env

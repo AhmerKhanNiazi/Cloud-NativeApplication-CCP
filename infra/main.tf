@@ -164,7 +164,8 @@ resource "aws_iam_policy" "lambda_s3_policy" {
       {
         Action = [
           "s3:PutObject",
-          "s3:GetObject"
+          "s3:GetObject",
+          "s3:DeleteObject"
         ]
         Effect   = "Allow"
         Resource = "${aws_s3_bucket.file_storage.arn}/*"
@@ -176,6 +177,18 @@ resource "aws_iam_policy" "lambda_s3_policy" {
 resource "aws_iam_role_policy_attachment" "lambda_s3" {
   role       = aws_iam_role.lambda_exec.name
   policy_arn = aws_iam_policy.lambda_s3_policy.arn
+}
+
+resource "aws_sns_topic_subscription" "alert_sub_1" {
+  topic_arn = aws_sns_topic.alerts.arn
+  protocol  = "email"
+  endpoint  = "mahendar.71355@edu.iqra.pk"
+}
+
+resource "aws_sns_topic_subscription" "alert_sub_2" {
+  topic_arn = aws_sns_topic.alerts.arn
+  protocol  = "email"
+  endpoint  = "solangiafnan7@gmail.com"
 }
 
 resource "aws_iam_policy" "lambda_sns_policy" {

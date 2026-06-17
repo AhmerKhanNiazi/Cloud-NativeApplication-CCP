@@ -1,9 +1,10 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header, Depends
 from mangum import Mangum
 from pydantic import BaseModel
 import boto3
 import os
 import uuid
+import datetime
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -21,8 +22,6 @@ dynamodb = boto3.resource('dynamodb', region_name=os.environ.get('AWS_REGION', '
 table_name = os.environ.get('DYNAMODB_TABLE_NAME', 'ccp-cloud-native-db')
 table = dynamodb.Table(table_name)
 
-import datetime
-
 s3_client = boto3.client('s3', region_name=os.environ.get('AWS_REGION', 'us-east-1'))
 sns_client = boto3.client('sns', region_name=os.environ.get('AWS_REGION', 'us-east-1'))
 S3_BUCKET_NAME = os.environ.get('S3_BUCKET_NAME', 'ccp-cloud-native-storage')
@@ -35,12 +34,19 @@ class IncidentModel(BaseModel):
     location: str
     image_url: str = ""
 
+def get_current_role(x_auth_key: str = Header(None)):
+    if x_auth_key == "admin123":
+        return "Admin"
+    elif x_auth_key == "responder123":
+        return "Responder"
+    raise HTTPException(status_code=403, detail="Invalid or missing authentication key")
+
 @app.get("/")
 def read_root():
     return {"message": "Aegis Disaster Response API is running"}
 
 @app.get("/generate-upload-url")
-def generate_upload_url(filename: str, filetype: str):
+def generate_upload_url(filename: str, filetype: str, role: str = Depends(get_current_role)):
     try:
         unique_filename = f"{uuid.uuid4()}-{filename}"
         presigned_url = s3_client.generate_presigned_url(
@@ -57,10 +63,10 @@ def generate_upload_url(filename: str, filetype: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/incidents")
-def create_incident(incident: IncidentModel):
+def create_incident(incident: IncidentModel, role: str = Depends(get_current_role)):
     incident_id = str(uuid.uuid4())
     timestamp = datetime.datetime.utcnow().isoformat()
-    reporter_id = "SYS-OP-1" # Mock until auth is implemented
+    reporter_id = role # Dynamically set reporter ID based on Auth role
     
     table.put_item(
         Item={
@@ -90,20 +96,39 @@ def create_incident(incident: IncidentModel):
     return {"id": incident_id, "timestamp": timestamp, "reporter_id": reporter_id, **incident.dict()}
 
 @app.get("/incidents/{incident_id}")
-def get_incident(incident_id: str):
+def get_incident(incident_id: str, role: str = Depends(get_current_role)):
     response = table.get_item(Key={'id': incident_id})
     if 'Item' not in response:
         raise HTTPException(status_code=404, detail="Incident not found")
     return response['Item']
 
 @app.get("/incidents")
-def list_incidents():
+def list_incidents(role: str = Depends(get_current_role)):
     response = table.scan()
     return response.get('Items', [])
 
 @app.delete("/incidents/{incident_id}")
-def delete_incident(incident_id: str):
+def delete_incident(incident_id: str, role: str = Depends(get_current_role)):
+    if role != "Admin":
+        raise HTTPException(status_code=403, detail="Only Admins can resolve incidents")
+        
+    # Fetch incident to get S3 image_url
+    response = table.get_item(Key={'id': incident_id})
+    if 'Item' not in response:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    
+    item = response['Item']
+    image_url = item.get('image_url', '')
+    
+    # Delete from S3 if an image exists
+    if image_url:
+        try:
+            key = image_url.split('/')[-1]
+            s3_client.delete_object(Bucket=S3_BUCKET_NAME, Key=key)
+        except Exception as e:
+            print(f"Failed to delete S3 image: {e}")
+
     table.delete_item(Key={'id': incident_id})
-    return {"message": "Incident deleted"}
+    return {"message": "Incident deleted and assets cleaned up"}
 
 handler = Mangum(app)
