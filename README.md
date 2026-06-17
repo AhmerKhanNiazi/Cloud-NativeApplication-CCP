@@ -5,6 +5,8 @@
 ![React](https://img.shields.io/badge/react-%2320232a.svg?style=for-the-badge&logo=react&logoColor=%2361DAFB)
 ![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)
 
+🔴 **LIVE PREVIEW:** [AEGIS Command Center (Deployed on AWS S3)](http://ccp-cloud-native-frontend-ui-849320.s3-website-us-east-1.amazonaws.com)
+
 **AEGIS** is a God-Level Cloud-Native Web Application built entirely on Serverless AWS infrastructure. It solves a **Real-World Problem**: Providing an instantly scalable, highly available, and secure platform for emergency response teams to log crisis incidents and upload damage assessment photos during natural disasters.
 
 This repository contains the complete source code, infrastructure definitions, and documentation for the Complex Computing Problem (CCP) assignment for the Cloud Computing & Virtualization course.
