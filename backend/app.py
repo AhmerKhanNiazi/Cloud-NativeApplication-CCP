@@ -21,41 +21,89 @@ dynamodb = boto3.resource('dynamodb', region_name=os.environ.get('AWS_REGION', '
 table_name = os.environ.get('DYNAMODB_TABLE_NAME', 'ccp-cloud-native-db')
 table = dynamodb.Table(table_name)
 
-class ItemModel(BaseModel):
-    name: str
+import datetime
+
+s3_client = boto3.client('s3', region_name=os.environ.get('AWS_REGION', 'us-east-1'))
+sns_client = boto3.client('sns', region_name=os.environ.get('AWS_REGION', 'us-east-1'))
+S3_BUCKET_NAME = os.environ.get('S3_BUCKET_NAME', 'ccp-cloud-native-storage')
+SNS_TOPIC_ARN = os.environ.get('SNS_TOPIC_ARN', '')
+
+class IncidentModel(BaseModel):
+    title: str
+    severity: str
     description: str
+    location: str
+    image_url: str = ""
 
 @app.get("/")
 def read_root():
-    return {"message": "API is running"}
+    return {"message": "Aegis Disaster Response API is running"}
 
-@app.post("/items")
-def create_item(item: ItemModel):
-    item_id = str(uuid.uuid4())
+@app.get("/generate-upload-url")
+def generate_upload_url(filename: str, filetype: str):
+    try:
+        unique_filename = f"{uuid.uuid4()}-{filename}"
+        presigned_url = s3_client.generate_presigned_url(
+            'put_object',
+            Params={
+                'Bucket': S3_BUCKET_NAME,
+                'Key': unique_filename,
+                'ContentType': filetype
+            },
+            ExpiresIn=3600
+        )
+        return {"upload_url": presigned_url, "file_key": unique_filename, "url": f"https://{S3_BUCKET_NAME}.s3.amazonaws.com/{unique_filename}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/incidents")
+def create_incident(incident: IncidentModel):
+    incident_id = str(uuid.uuid4())
+    timestamp = datetime.datetime.utcnow().isoformat()
+    reporter_id = "SYS-OP-1" # Mock until auth is implemented
+    
     table.put_item(
         Item={
-            'id': item_id,
-            'name': item.name,
-            'description': item.description
+            'id': incident_id,
+            'title': incident.title,
+            'severity': incident.severity,
+            'description': incident.description,
+            'location': incident.location,
+            'image_url': incident.image_url,
+            'timestamp': timestamp,
+            'reporter_id': reporter_id
         }
     )
-    return {"id": item_id, "name": item.name, "description": item.description}
+    
+    # Send SNS Alert for Critical Incidents
+    if incident.severity.lower() == 'critical' and SNS_TOPIC_ARN:
+        message = f"🚨 CRITICAL INCIDENT REPORTED: {incident.title}\nLocation: {incident.location}\nDetails: {incident.description}"
+        try:
+            sns_client.publish(
+                TopicArn=SNS_TOPIC_ARN,
+                Message=message,
+                Subject=f"AEGIS ALERT: {incident.title}"
+            )
+        except Exception as e:
+            print(f"Failed to publish to SNS: {e}")
 
-@app.get("/items/{item_id}")
-def get_item(item_id: str):
-    response = table.get_item(Key={'id': item_id})
+    return {"id": incident_id, "timestamp": timestamp, "reporter_id": reporter_id, **incident.dict()}
+
+@app.get("/incidents/{incident_id}")
+def get_incident(incident_id: str):
+    response = table.get_item(Key={'id': incident_id})
     if 'Item' not in response:
-        raise HTTPException(status_code=404, detail="Item not found")
+        raise HTTPException(status_code=404, detail="Incident not found")
     return response['Item']
 
-@app.get("/items")
-def list_items():
+@app.get("/incidents")
+def list_incidents():
     response = table.scan()
     return response.get('Items', [])
 
-@app.delete("/items/{item_id}")
-def delete_item(item_id: str):
-    table.delete_item(Key={'id': item_id})
-    return {"message": "Item deleted"}
+@app.delete("/incidents/{incident_id}")
+def delete_incident(incident_id: str):
+    table.delete_item(Key={'id': incident_id})
+    return {"message": "Incident deleted"}
 
 handler = Mangum(app)

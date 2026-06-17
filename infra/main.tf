@@ -72,6 +72,43 @@ resource "aws_s3_bucket" "file_storage" {
   bucket = "${var.project_name}-storage-files-849320"
 }
 
+resource "aws_s3_bucket_cors_configuration" "file_storage_cors" {
+  bucket = aws_s3_bucket.file_storage.id
+
+  cors_rule {
+    allowed_headers = ["*"]
+    allowed_methods = ["PUT", "POST", "GET"]
+    allowed_origins = ["*"]
+    expose_headers  = ["ETag"]
+    max_age_seconds = 3000
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "file_storage_access" {
+  bucket = aws_s3_bucket.file_storage.id
+
+  block_public_acls       = false
+  block_public_policy     = false
+  ignore_public_acls      = false
+  restrict_public_buckets = false
+}
+
+resource "aws_s3_bucket_policy" "file_storage_policy" {
+  bucket = aws_s3_bucket.file_storage.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "PublicReadGetObject"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = "s3:GetObject"
+        Resource  = "${aws_s3_bucket.file_storage.arn}/*"
+      }
+    ]
+  })
+}
+
 resource "aws_cognito_user_pool" "auth_pool" {
   name = "${var.project_name}-users"
 
@@ -117,6 +154,53 @@ resource "aws_iam_role" "lambda_exec" {
   })
 }
 
+resource "aws_iam_policy" "lambda_s3_policy" {
+  name        = "${var.project_name}-lambda-s3"
+  description = "Allow Lambda to generate presigned URLs for S3"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject"
+        ]
+        Effect   = "Allow"
+        Resource = "${aws_s3_bucket.file_storage.arn}/*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_s3" {
+  role       = aws_iam_role.lambda_exec.name
+  policy_arn = aws_iam_policy.lambda_s3_policy.arn
+}
+
+resource "aws_iam_policy" "lambda_sns_policy" {
+  name        = "${var.project_name}-lambda-sns"
+  description = "Allow Lambda to publish to SNS"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "sns:Publish"
+        ]
+        Effect   = "Allow"
+        Resource = aws_sns_topic.alerts.arn
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_sns" {
+  role       = aws_iam_role.lambda_exec.name
+  policy_arn = aws_iam_policy.lambda_sns_policy.arn
+}
+
 resource "aws_iam_role_policy_attachment" "lambda_basic" {
   role       = aws_iam_role.lambda_exec.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
@@ -137,6 +221,8 @@ resource "aws_lambda_function" "backend_lambda" {
   environment {
     variables = {
       DYNAMODB_TABLE_NAME = aws_dynamodb_table.app_database.name
+      S3_BUCKET_NAME      = aws_s3_bucket.file_storage.bucket
+      SNS_TOPIC_ARN       = aws_sns_topic.alerts.arn
     }
   }
 
