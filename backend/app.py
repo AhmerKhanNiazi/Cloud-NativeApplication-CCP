@@ -5,6 +5,13 @@ import boto3
 import os
 import uuid
 import datetime
+import hashlib
+import google.generativeai as genai
+
+import os
+api_key = os.environ.get("GEMINI_API_KEY", "dummy_key")
+genai.configure(api_key=api_key)
+ai_model = genai.GenerativeModel('gemini-2.5-flash')
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -34,16 +41,93 @@ class IncidentModel(BaseModel):
     location: str
     image_url: str = ""
 
+class SignupModel(BaseModel):
+    email: str
+    password: str
+    role: str
+
+class LoginModel(BaseModel):
+    email: str
+    password: str
+
+class SubscriberModel(BaseModel):
+    email: str
+
+class StrategyRequestModel(BaseModel):
+    title: str
+    description: str
+    severity: str
+    location: str
+
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
+
 def get_current_role(x_auth_key: str = Header(None)):
+    if not x_auth_key:
+        raise HTTPException(status_code=403, detail="Missing authentication key")
     if x_auth_key == "admin123":
         return "Admin"
     elif x_auth_key == "responder123":
         return "Responder"
-    raise HTTPException(status_code=403, detail="Invalid or missing authentication key")
+    
+    if x_auth_key.startswith("TOKEN#"):
+        parts = x_auth_key.split("#")
+        if len(parts) == 3:
+            return parts[2]
+            
+    raise HTTPException(status_code=403, detail="Invalid authentication key")
 
 @app.get("/")
 def read_root():
     return {"message": "Aegis Disaster Response API is running"}
+
+@app.post("/signup")
+def signup(data: SignupModel):
+    user_id = f"USER#{data.email}"
+    response = table.get_item(Key={'id': user_id})
+    if 'Item' in response:
+        raise HTTPException(status_code=400, detail="User already exists")
+    
+    table.put_item(
+        Item={
+            'id': user_id,
+            'email': data.email,
+            'password': hash_password(data.password),
+            'role': data.role,
+            'type': 'User'
+        }
+    )
+    return {"message": "User created successfully", "role": data.role}
+
+@app.post("/login")
+def login(data: LoginModel):
+    user_id = f"USER#{data.email}"
+    response = table.get_item(Key={'id': user_id})
+    if 'Item' not in response:
+        raise HTTPException(status_code=400, detail="Invalid email or password")
+    
+    user = response['Item']
+    if user['password'] != hash_password(data.password):
+        raise HTTPException(status_code=400, detail="Invalid email or password")
+    
+    token = f"TOKEN#{data.email}#{user['role']}"
+    return {"token": token, "role": user['role'], "email": data.email}
+
+@app.post("/subscribers")
+def add_subscriber(data: SubscriberModel, role: str = Depends(get_current_role)):
+    if role != "Admin":
+        raise HTTPException(status_code=403, detail="Only Admins can add subscribers")
+    
+    try:
+        sns_client.subscribe(
+            TopicArn=SNS_TOPIC_ARN,
+            Protocol='email',
+            Endpoint=data.email,
+            ReturnSubscriptionArn=True
+        )
+        return {"message": f"Successfully sent subscription invitation to {data.email}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/generate-upload-url")
 def generate_upload_url(filename: str, filetype: str, role: str = Depends(get_current_role)):
@@ -130,5 +214,23 @@ def delete_incident(incident_id: str, role: str = Depends(get_current_role)):
 
     table.delete_item(Key={'id': incident_id})
     return {"message": "Incident deleted and assets cleaned up"}
+
+@app.post("/ai/strategy")
+def generate_strategy(data: StrategyRequestModel, role: str = Depends(get_current_role)):
+    prompt = f"""
+    You are an expert disaster response AI for AEGIS. 
+    Analyze the following incident and provide a fast, actionable, step-by-step mitigation strategy and evacuation plan.
+    Keep the response concise (max 2-3 paragraphs), authoritative, and formatted in clear bullet points.
+    
+    Incident: {data.title}
+    Severity: {data.severity}
+    Location: {data.location}
+    Details: {data.description}
+    """
+    try:
+        response = ai_model.generate_content(prompt)
+        return {"strategy": response.text}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 handler = Mangum(app)

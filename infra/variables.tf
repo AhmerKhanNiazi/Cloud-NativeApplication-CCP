@@ -12,3 +12,10 @@ variable "project_name" {
   type    = string
   default = "ccp-cloud-native"
 }
+
+variable "gemini_api_key" {
+  description = "Gemini API Key for AI Strategy"
+  type        = string
+  sensitive   = true
+}
+

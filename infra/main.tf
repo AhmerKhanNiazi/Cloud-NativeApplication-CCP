@@ -200,7 +200,9 @@ resource "aws_iam_policy" "lambda_sns_policy" {
     Statement = [
       {
         Action = [
-          "sns:Publish"
+          "sns:Publish",
+          "sns:Subscribe",
+          "sns:ListSubscriptionsByTopic"
         ]
         Effect   = "Allow"
         Resource = aws_sns_topic.alerts.arn
@@ -230,12 +232,15 @@ resource "aws_lambda_function" "backend_lambda" {
   role          = aws_iam_role.lambda_exec.arn
   handler       = "app.handler"
   runtime       = "python3.10"
+  timeout       = 30
+  memory_size   = 256
   
   environment {
     variables = {
       DYNAMODB_TABLE_NAME = aws_dynamodb_table.app_database.name
       S3_BUCKET_NAME      = aws_s3_bucket.file_storage.bucket
       SNS_TOPIC_ARN       = aws_sns_topic.alerts.arn
+      GEMINI_API_KEY      = var.gemini_api_key
     }
   }
 

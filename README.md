@@ -83,18 +83,10 @@ terraform apply -auto-approve
 *Wait for it to complete. Note down the generated `api_url` from the Terraform outputs.*
 
 ### Step 2: Deploy Backend & SNS (AWS Lambda)
-We have a built-in Python script (`zip.py`) to easily package the backend.
+We have a built-in Python script (`deploy_lambda.py`) to automatically resolve Linux binaries, package the backend, upload to S3, and update Lambda.
 ```bash
-cd ../backend
-
-# 1. Install dependencies into a 'package' folder
-pip install -r requirements.txt -t package/
-
-# 2. Run the auto-zipper script (creates backend_v3.zip)
-python zip.py
-
-# 3. Upload to AWS Lambda
-aws lambda update-function-code --function-name ccp-backend-function --zip-file fileb://backend_v3.zip
+# Simply run the deployment script
+python deploy_lambda.py
 ```
 
 ### Step 3: Verify SNS Email Subscriptions
